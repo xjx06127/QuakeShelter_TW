@@ -332,7 +332,7 @@
             });
           }
 
-          fetch("/api/earthquake_info.js")
+          fetch("/api/earthquake_info")
             .then((res) => res.json())
             .then((data) => {
               const quakes = data.records.Earthquake || [];
