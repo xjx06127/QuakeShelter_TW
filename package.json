@@ -2,6 +2,7 @@
   "name": "quake-shelter-tw-api-proxy",
   "version": "1.0.0",
   "description": "Proxy for CWA Earthquake API using Vercel Serverless Function.",
+  "type": "module",
   "main": "api/earthquake_info.js",
   "scripts": {
     "start": "echo 'Vercel will handle start process.'"
