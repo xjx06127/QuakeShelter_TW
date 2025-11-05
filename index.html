@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>QuakeShelter TW</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      body {
+        margin: 0;
+        display: flex;
+        height: 100vh;
+        font-family: "Noto Sans", sans-serif;
+        background-color: #f2f2f7;
+        color: #1c1c1e;
+      }
+
+      #map {
+        flex: 2;
+        position: relative;
+        min-width: 0;
+      }
+
+      #sidebar {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 16px;
+        background: #ffffff;
+        overflow-y: hidden;
+        gap: 20px;
+        box-sizing: border-box;
+        border-left: 1px solid #e0e0e0;
+      }
+
+      .card {
+        background: #fafafa;
+        border-radius: 12px;
+        padding: 16px;
+        box-sizing: border-box;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        display: flex;
+        flex-direction: column;
+        height: 30%;
+      }
+
+      .card h3 {
+        margin: 0 0 12px 0;
+        font-size: 18px;
+        font-weight: 600;
+        color: #111;
+        flex-shrink: 0;
+      }
+
+      .scroll-area {
+        flex-grow: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding-right: 4px;
+        background-color: #f9f9fa;
+        border-radius: 6px;
+      }
+
+      .quake-item,
+      .shelter-item {
+        position: relative;
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 12px 14px 10px 14px;
+        margin-bottom: 12px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .quake-item::before,
+      .shelter-item::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 4px;
+        border-top-left-radius: 12px;
+        border-top-right-radius: 12px;
+      }
+
+      .quake-item::before {
+        background: linear-gradient(to right, #ff6b6b, #ff4d4d);
+      }
+
+      .shelter-item::before {
+        background: linear-gradient(to right, #66b3ff, #3388ff);
+      }
+
+      #reset-container {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        z-index: 1000;
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+      }
+
+      #reset-container button {
+        padding: 6px 14px;
+        font-size: 14px;
+        background-color: #ffffff;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        cursor: pointer;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        pointer-events: auto;
+        transition: all 0.2s ease;
+      }
+
+      #reset-container button:hover {
+        background-color: #f0f0f0;
+      }
+
+      #filter-controls {
+        margin-top: 0;
+        background: #ffffff;
+        padding: 10px 12px;
+        border-radius: 10px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        pointer-events: auto;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="map">
+      <div id="reset-container">
+        <button type="button" onclick="resetMap()">Reset Map</button>
+        <div id="filter-controls">
+          <label
+            ><input
+              type="checkbox"
+              class="mag-filter"
+              value="Below 4"
+              checked
+            />
+            &lt;4.0</label
+          ><br />
+          <label
+            ><input
+              type="checkbox"
+              class="mag-filter"
+              value="4.0–4.9"
+              checked
+            />
+            4.0–4.9</label
+          ><br />
+          <label
+            ><input
+              type="checkbox"
+              class="mag-filter"
+              value="5.0–5.9"
+              checked
+            />
+            5.0–5.9</label
+          ><br />
+          <label
+            ><input type="checkbox" class="mag-filter" value="6.0+" checked />
+            6.0+</label
+          >
+        </div>
+      </div>
+    </div>
+
+    <div id="sidebar">
+      <div class="card">
+        <h3>Magnitude Distribution (Last 7 Days)</h3>
+        <canvas id="magnitudeChart"></canvas>
+      </div>
+      <div class="card">
+        <h3>Recent Earthquakes</h3>
+        <div id="quake-items" class="scroll-area"></div>
+      </div>
+      <div class="card">
+        <h3>Nearby Shelters</h3>
+        <div id="shelter-items" class="scroll-area"></div>
+      </div>
+    </div>
+
+    <script>
+      const map = L.map("map", {
+        minZoom: 7,
+        maxZoom: 12,
+        maxBounds: [
+          [20.5, 118],
+          [26.5, 123.5],
+        ],
+        maxBoundsViscosity: 1.0,
+      }).setView([23.7, 121], 7);
+
+      L.tileLayer(
+        "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+        {
+          attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+          subdomains: "abcd",
+          maxZoom: 19,
+        }
+      ).addTo(map);
+
+      function getMarkerStyle(mag) {
+        const radius = mag * 3;
+        let color = "#b30000";
+        if (mag < 4) color = "#ffcccc";
+        else if (mag < 5) color = "#ff9999";
+        else if (mag < 6) color = "#ff4d4d";
+        return { radius, color, fillColor: color, fillOpacity: 0.6 };
+      }
+
+      function resetMap() {
+        map.setView([23.6978, 120.9605], 7);
+        if (window.shelterMarkers) {
+          window.shelterMarkers.forEach((m) => map.removeLayer(m));
+          window.shelterMarkers = [];
+        }
+        document.getElementById("shelter-items").innerHTML = "";
+      }
+
+      fetch("shelter.json")
+        .then((res) => res.json())
+        .then((shelterData) => {
+          function getDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371;
+            const dLat = ((lat2 - lat1) * Math.PI) / 180;
+            const dLon = ((lon2 - lon1) * Math.PI) / 180;
+            const a =
+              Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos((lat1 * Math.PI) / 180) *
+                Math.cos((lat2 * Math.PI) / 180) *
+                Math.sin(dLon / 2) *
+                Math.sin(dLon / 2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          }
+
+          function showSheltersWithinRadius(centerLat, centerLng, radius) {
+            if (window.shelterMarkers) {
+              window.shelterMarkers.forEach((m) => map.removeLayer(m));
+            }
+            const markers = [];
+
+            shelterData.forEach((shelter) => {
+              const distance = getDistance(
+                centerLat,
+                centerLng,
+                shelter.Latitude,
+                shelter.Longitude
+              );
+              if (distance <= radius) {
+                const index = markers.length;
+                const marker = L.circleMarker(
+                  [shelter.Latitude, shelter.Longitude],
+                  {
+                    radius: 4,
+                    color: "blue",
+                    fillColor: "#3388ff",
+                    fillOpacity: 0.7,
+                  }
+                ).addTo(map);
+
+                marker.bindPopup(
+                  `<b>Name:</b> ${shelter.ShelterName}<br>` +
+                    `<b>Address:</b> ${shelter.Address}<br>` +
+                    `<b>Capacity:</b> ${shelter.ShelterCapacity} people<br>` +
+                    `<b>Phone:</b> ${shelter.ManagerPhone}<br>` +
+                    `<b>Distance:</b> ${distance.toFixed(2)} km`
+                );
+                markers.push(marker);
+              }
+            });
+
+            window.shelterMarkers = markers;
+            return markers;
+          }
+
+          function updateShelterList(centerLat, centerLng, markers) {
+            const container = document.getElementById("shelter-items");
+            container.innerHTML = "";
+
+            shelterData.forEach((shelter) => {
+              const distance = getDistance(
+                centerLat,
+                centerLng,
+                shelter.Latitude,
+                shelter.Longitude
+              );
+              if (distance <= 10) {
+                const markerIndex = markers.findIndex(
+                  (m) =>
+                    m.getLatLng().lat === shelter.Latitude &&
+                    m.getLatLng().lng === shelter.Longitude
+                );
+                if (markerIndex === -1) return;
+
+                const item = document.createElement("div");
+                item.className = "shelter-item";
+                item.innerHTML =
+                  `<strong>${shelter.ShelterName}</strong><br>` +
+                  `Address: <a href="#" class="shelter-list-link" data-index="${markerIndex}">${shelter.Address}</a><br>` +
+                  `Capacity: ${shelter.ShelterCapacity} people<br>` +
+                  `Phone: ${shelter.ManagerPhone}<br>` +
+                  `Distance: ${distance.toFixed(2)} km`;
+                container.appendChild(item);
+              }
+            });
+
+            container.querySelectorAll(".shelter-list-link").forEach((link) => {
+              link.addEventListener("click", (e) => {
+                e.preventDefault();
+                const idx = parseInt(link.getAttribute("data-index"));
+                const marker = markers[idx];
+                if (marker) {
+                  map.setView(marker.getLatLng(), 13);
+                  marker.openPopup();
+                }
+              });
+            });
+          }
+
+          fetch("/api/earthquake_info.js")
+            .then((res) => res.json())
+            .then((data) => {
+              const quakes = data.records.Earthquake || [];
+              const quakeContainer = document.getElementById("quake-items");
+              const magStats = {
+                "Below 4": 0,
+                "4.0–4.9": 0,
+                "5.0–5.9": 0,
+                "6.0+": 0,
+              };
+              const quakeMarkers = [];
+              const quakeMarkerCategories = {};
+
+              quakes.slice(0, 20).forEach((eq, i) => {
+                const info = eq.EarthquakeInfo;
+                const epicenter = info.Epicenter;
+                const mag = parseFloat(info.EarthquakeMagnitude.MagnitudeValue);
+                const lat = parseFloat(epicenter.EpicenterLatitude);
+                const lng = parseFloat(epicenter.EpicenterLongitude);
+                const loc = epicenter.Location;
+                const depth = info.FocalDepth;
+                const time = info.OriginTime;
+
+                let magRange = "Below 4";
+                if (mag < 4) magStats["Below 4"]++;
+                else if (mag < 5) {
+                  magRange = "4.0–4.9";
+                  magStats[magRange]++;
+                } else if (mag < 6) {
+                  magRange = "5.0–5.9";
+                  magStats[magRange]++;
+                } else {
+                  magRange = "6.0+";
+                  magStats[magRange]++;
+                }
+
+                const style = getMarkerStyle(mag);
+                const marker = L.circle([lat, lng], {
+                  radius: mag * 2500,
+                  color: style.color,
+                  fillColor: style.fillColor,
+                  fillOpacity: 0.6,
+                }).addTo(map);
+
+                marker.bindPopup(
+                  `<b>Location:</b> ${loc}<br>` +
+                    `<b>Magnitude:</b> ${mag}<br>` +
+                    `<b>Depth:</b> ${depth} km<br>` +
+                    `<b>Time:</b> ${time}`
+                );
+
+                marker.on("click", () => {
+                  const shelterMarkers = showSheltersWithinRadius(lat, lng, 10);
+                  updateShelterList(lat, lng, shelterMarkers);
+                  map.setView([lat, lng], 10);
+                  marker.openPopup();
+                });
+
+                quakeMarkers.push(marker);
+                if (!quakeMarkerCategories[magRange])
+                  quakeMarkerCategories[magRange] = [];
+                quakeMarkerCategories[magRange].push(marker);
+
+                const item = document.createElement("div");
+                item.className = "quake-item";
+                item.innerHTML = `
+                <strong>Location:</strong>
+                <a href="#" class="quake-link" data-index="${i}">${loc}</a><br>
+                <strong>Magnitude:</strong> ${mag}<br>
+                <strong>Depth:</strong> ${depth} km<br>
+                <strong>Time:</strong> ${time}
+              `;
+                quakeContainer.appendChild(item);
+              });
+
+              document.querySelectorAll(".quake-link").forEach((link) => {
+                link.addEventListener("click", (e) => {
+                  e.preventDefault();
+                  const i = parseInt(link.getAttribute("data-index"));
+                  if (quakeMarkers[i]) quakeMarkers[i].fire("click");
+                });
+              });
+
+              new Chart(
+                document.getElementById("magnitudeChart").getContext("2d"),
+                {
+                  type: "bar",
+                  data: {
+                    labels: Object.keys(magStats),
+                    datasets: [
+                      {
+                        label: "Number of Earthquakes",
+                        data: Object.values(magStats),
+                        backgroundColor: [
+                          "#ffcccc",
+                          "#ff9999",
+                          "#ff4d4d",
+                          "#b30000",
+                        ],
+                        borderWidth: 1,
+                      },
+                    ],
+                  },
+                  options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                      y: {
+                        beginAtZero: true,
+                        title: { display: true, text: "Count" },
+                      },
+                    },
+                    plugins: { legend: { display: false } },
+                  },
+                }
+              );
+
+              document.querySelectorAll(".mag-filter").forEach((checkbox) => {
+                checkbox.addEventListener("change", () => {
+                  resetMap(); // Reset shelter display every time the earthquake magnitude filter is changed
+
+                  const checkedValues = Array.from(
+                    document.querySelectorAll(".mag-filter:checked")
+                  ).map((cb) => cb.value);
+
+                  Object.entries(quakeMarkerCategories).forEach(
+                    ([range, markers]) => {
+                      markers.forEach((marker) => {
+                        if (checkedValues.includes(range)) {
+                          map.addLayer(marker);
+                        } else {
+                          map.removeLayer(marker);
+                        }
+                      });
+                    }
+                  );
+                });
+              });
+
+              // Assuming the user is located in central Taiwan
+              if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(() => {
+                  //const userLat = position.coords.latitude;
+                  //const userLng = position.coords.longitude;
+                  const userLat = 23.071;
+                  const userLng = 120.813;
+                  const userShelterMarkers = showSheltersWithinRadius(
+                    userLat,
+                    userLng,
+                    10
+                  );
+                  updateShelterList(userLat, userLng, userShelterMarkers);
+                  L.circleMarker([userLat, userLng], {
+                    radius: 5,
+                    color: "green",
+                    fillColor: "green",
+                    fillOpacity: 0.8,
+                  })
+                    .addTo(map)
+                    .bindPopup("📍 Your location")
+                    .openPopup();
+                });
+              }
+            })
+            .catch((err) =>
+              console.error("Failed to load earthquake data:", err)
+            );
+        })
+        .catch((err) => console.error("Failed to load shelter data:", err));
+    </script>
+  </body>
+</html>
