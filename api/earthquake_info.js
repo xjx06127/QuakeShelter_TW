@@ -1,7 +1,6 @@
 const API_KEY = process.env.CWA_API_KEY;
 
-const CWA_URL =
-  "https://opendata.cwa.gov.tw/api/v1/rest/datastore/E-A0015-002?Authorization=${API_KEY}&limit=20";
+const CWA_URL = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/E-A0015-002?Authorization=${API_KEY}&limit=20`;
 
 export default async function handler(request, response) {
   if (!API_KEY) {
